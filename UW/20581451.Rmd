@@ -1,0 +1,243 @@
+---
+title: "Linear Model Prediction"
+author: "Sang Heon Lee"
+output: 
+    pdf_document
+---
+
+* UW ID: 20581451
+
+
+# Summary
+
+## Preprocessing
+
+### Transformation (if any)
+* None
+
+### New Variables
+<!-- List all variables/predictors added to dtrain and dtest  -->
+* None
+
+## Model Building
+
+Forward selection using step function
+
+Main function used: step()
+
+## Final Model
+<!-- formula in your lm function  -->
+* The final model is $price \sim$ accommodates + property_type + latitude + 
+    extra_people + room_type + bathrooms + accommodates:latitude + 
+    latitude:extra_people + accommodates:bathrooms + latitude:bathrooms
+
+<!-- Details -->
+<!-- R code starts, please present both code and output. -->
+<!-- Provide descriptions and explanations to justify your operations -->
+<!-- Be brief and to the point. -->
+<!-- Only details lead to your final model are needed. If you tried other appoaches/models, you can mention them, no details needed for abandoned attempts. -->
+
+
+
+# 1. Preprocessing
+
+## 1.1 Loading data
+
+First, we load our data.
+```{r,echo=TRUE}
+set.seed(20581451)
+load("linear.Rdata")
+```
+
+Take a look at the class of each columns to do any transformations if needed.
+
+```{r}
+sapply(dtest, class)
+```
+
+The below is the summary of the dtest data set.
+
+```{r}
+summary(dtest)
+```
+
+Use pair plot to see any relationship between variables.
+
+```{r}
+dev.new(width=10, height=10)
+
+pairs(dtest, pch = 16, cex=0.4)
+```
+
+Let's plot to see relationship between response and important explanatory variables 
+
+```{r}
+plot(dtest$bathrooms, dtest$price)
+```
+
+```{r}
+plot(dtest$beds, dtest$price)
+```
+
+```{r}
+plot(dtest$accommodates, dtest$price)
+```
+
+When i was looking at the above plots, it was very hard to determine the relationship between following variables and price. But from common knowledge i could guess that the mentioned varaibles: accommodates, bathrooms, and beds are key factor in determining the price.
+
+
+\break
+# 2. Model Building
+
+The model building is done with step function.
+
+First, we need a inital starting model named M0.
+And out max model named Mmax. We start with the following Mmax and check if any coeffifnients are NA
+
+```{r}
+M0 <- lm(price ~ 1, data = dtrain)
+Mmax <- lm(price ~ (.)^2, data = dtrain)
+anyNA(coef(Mmax))
+beta.Max <- coef(Mmax)
+names(beta.Max)[is.na(beta.Max)]
+```
+
+There seems to be a lot of NA coefficients, we get rid of them by factoring out useless interaction variables but still having its own coefficients.
+I take out property_type, room_type, and bed_type from the interaction model and put as is. The result yields a max model without NA coefficients. I am good to go to run the step function.
+
+```{r}
+Mmax <- lm(price ~ (.-property_type-room_type-bed_type)^2 + property_type + room_type + bed_type, data = dtrain)
+
+anyNA(coef(Mmax))
+beta.Max <- coef(Mmax)
+names(beta.Max)[is.na(beta.Max)]
+
+```
+
+I declare Mstart which is used in stepwise selection method.
+
+```{r}
+Mstart <- lm(price ~ ., data = dtrain)
+```
+
+```{r}
+
+system.time({ # time the calculation
+  Mfwd <- step(object = M0, # starting point model
+  scope = list(lower = M0, upper = Mmax), # smallest and largest model
+  direction = "forward",
+  k=2,
+  trace = FALSE) # trace prints out information
+})
+
+
+```
+```{r}
+# backward elimiation
+system.time({
+  Mback <- step(object = Mmax, # starting point model
+  scope = list(lower = M0, upper = Mmax),
+  k=2,
+  direction = "backward", trace = FALSE)
+})
+```
+
+```{r}
+
+# stepwise selection (both directions)
+system.time({
+  Mstep <- step(object = Mstart,
+    scope = list(lower = M0, upper = Mmax),
+      k=2, direction = "both", trace = FALSE)
+})
+```
+
+These are the summary of three models generated from step with different methods
+```{r}
+Mfwd$call
+```
+```{r}
+Mback$call
+```
+
+```{r}
+Mstep$call
+```
+
+Check the AIC and press residuals of each model and choose the best one.
+
+```{r}
+AIC1 <- AIC(Mfwd)
+AIC2 <- AIC(Mback)
+AIC3 <- AIC(Mstep)
+
+press1 <- resid(Mfwd)/(1-hatvalues(Mfwd)) # M1
+press2 <- resid(Mback)/(1-hatvalues(Mback)) # M2
+press3 <- resid(Mstep)/(1-hatvalues(Mstep))
+
+disp <- rbind(AIC = c(AIC1, AIC2, AIC3)
+        , PRESS = c(sum(press1^2), sum(press2^2), sum(press3^2)))
+
+disp
+```
+```{r}
+Mnames <- expression(M[FWD], M[BACK], M[STEP])
+par(mar = c(3, 6, 1, 1))
+boxplot(x = list(log(abs(press1)), log(abs(press2)), log(abs(press3))), names = Mnames,
+ylab = expression(group("|", PRESS[i], "|")),
+col = c("yellow", "orange", "red"))
+```
+
+Model with forward step seems to be the best here. Therefore, I choose this one as my model. Another reasoni chose Mfwd model is because of simplicity. The other two models are really complicated and could lead to overfitting.
+
+
+The following is the result of the Mfwd model. I see strong significant relationship between pricae and accommodates, latitude, accommodates:latitude, and accommodates:bathrooms variables. I also see significant relationship between price and extra_people, room_type, and latitude:extra_people variables.
+
+
+```{r}
+summary(Mfwd)
+```
+
+Now, i check the prediction of my model against the train set to see if my model is acceptable.
+
+```{r}
+Xorder <- order(dtrain$accommodates)
+plot(dtrain$accommodates, dtrain$price,
+main = "Rent Price vs Accommodates",
+xlab = "Accommodates",
+ylab = "Price",
+pch=19,
+col=adjustcolor("firebrick", 0.5)
+)
+
+lines(dtrain$accommodates[Xorder],
+  predict(Mfwd)[Xorder],
+  col="blue", lwd=3)
+```
+
+```{r}
+Xorder <- order(dtrain$bathrooms)
+plot(dtrain$bathrooms, dtrain$price,
+main = "Rent Price vs Bathrooms",
+xlab = "Bathrooms",
+ylab = "Price",
+pch=19,
+col=adjustcolor("firebrick", 0.5)
+)
+
+lines(dtrain$bathrooms[Xorder],
+  predict(Mfwd)[Xorder],
+  col="blue", lwd=3)
+```
+
+The plot and my prediction line seems to fit well.
+
+\break
+# 3. Final Model
+
+The final model from my analysis is: $price \sim$ accommodates + property_type + latitude +
+    extra_people + room_type + bathrooms + accommodates:latitude + 
+    latitude:extra_people + accommodates:bathrooms + latitude:bathrooms
+
+
+
