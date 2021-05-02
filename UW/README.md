@@ -1,4 +1,4 @@
-## contains Python & R files done in class
+## contains Python & R files done for school
 
 ### courses:
   - STAT 441
